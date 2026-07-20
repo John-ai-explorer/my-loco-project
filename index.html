@@ -272,6 +272,61 @@
       background: #eef2f7;
     }
 
+    /* Clean PDF previews rendered with PDF.js: no browser PDF toolbar or editor UI. */
+    .clean-pdf-card {
+      width: 100%;
+      overflow: hidden;
+      padding: 1rem;
+      background: var(--page-card);
+      border: 1px solid var(--page-border);
+      border-radius: 18px;
+      box-shadow: var(--page-shadow);
+    }
+
+    .clean-pdf-title {
+      margin: 0 0 0.85rem;
+      color: #26374f;
+      font-size: 1.05rem;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .pdf-canvas-stack {
+      display: grid;
+      gap: 1rem;
+      width: 100%;
+      min-height: 120px;
+      align-items: start;
+      justify-items: center;
+      overflow: hidden;
+      background: #ffffff;
+      border-radius: 12px;
+    }
+
+    .pdf-page-canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      background: #ffffff;
+      border-radius: 10px;
+    }
+
+    .pdf-loading,
+    .pdf-error {
+      width: 100%;
+      padding: 2rem 1rem;
+      color: var(--page-muted);
+      background: #f8fafc;
+      border-radius: 10px;
+      font-size: 0.92rem;
+      text-align: center;
+    }
+
+    .pdf-error {
+      color: #9b2c2c;
+      background: #fff7f7;
+    }
+
     .subsection-heading {
       margin: 0 auto 0.65rem;
       color: var(--page-ink);
@@ -567,15 +622,14 @@
       <div class="content-container">
         <p class="section-kicker">Method</p>
         <h2 class="title section-title">Pipeline</h2>
-        <p class="section-lead">The complete pipeline document is embedded below and can also be opened in a separate browser tab.</p>
+        <p class="section-lead">A compact preview of the complete AWARE system pipeline.</p>
 
         <div class="pdf-grid is-single">
-          <article class="pdf-card">
-            <div class="pdf-card-header">
-              <h3 class="pdf-card-title">AWARE Pipeline</h3>
-              <a class="pdf-open-link" href="static/pdfs/pipeline.pdf" target="_blank" rel="noopener noreferrer">Open PDF</a>
+          <article class="clean-pdf-card">
+            <h3 class="clean-pdf-title">AWARE Pipeline</h3>
+            <div class="pdf-canvas-stack" data-pdf="static/pdfs/pipeline.pdf" aria-label="AWARE pipeline PDF preview">
+              <div class="pdf-loading">Loading pipeline preview...</div>
             </div>
-            <iframe class="pdf-frame" src="static/pdfs/pipeline.pdf#view=FitH" title="AWARE pipeline PDF"></iframe>
           </article>
         </div>
       </div>
@@ -596,12 +650,11 @@
             <iframe class="pdf-frame pdf-frame-simulation-wide" src="static/pdfs/simulation_demo.pdf#view=FitH&toolbar=0&navpanes=0" title="Simulation demo PDF"></iframe>
           </article>
 
-          <article class="pdf-card">
-            <div class="pdf-card-header">
-              <h3 class="pdf-card-title">Cruise-Evade</h3>
-              <a class="pdf-open-link" href="static/pdfs/cruise-evade.pdf" target="_blank" rel="noopener noreferrer">Open PDF</a>
+          <article class="clean-pdf-card">
+            <h3 class="clean-pdf-title">Cruise-Evade</h3>
+            <div class="pdf-canvas-stack" data-pdf="static/pdfs/cruise-evade.pdf" aria-label="Cruise-Evade PDF preview">
+              <div class="pdf-loading">Loading Cruise-Evade preview...</div>
             </div>
-            <iframe class="pdf-frame" src="static/pdfs/cruise-evade.pdf#view=FitH" title="Cruise-evade PDF"></iframe>
           </article>
         </div>
       </div>
@@ -920,6 +973,61 @@
     <p>AWARE project page. Built with the Academic Project Page template structure.</p>
   </footer>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    (function () {
+      const previewContainers = Array.from(document.querySelectorAll(".pdf-canvas-stack[data-pdf]"));
+      if (!previewContainers.length) return;
+
+      if (!window.pdfjsLib) {
+        previewContainers.forEach((container) => {
+          container.innerHTML = '<div class="pdf-error">PDF preview could not be loaded.</div>';
+        });
+        return;
+      }
+
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+      async function renderPdfPreview(container) {
+        const pdfPath = container.dataset.pdf;
+        try {
+          const pdf = await window.pdfjsLib.getDocument(pdfPath).promise;
+          const fragment = document.createDocumentFragment();
+          const availableWidth = Math.max(container.clientWidth, 280);
+          const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+
+          for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+            const page = await pdf.getPage(pageNumber);
+            const naturalViewport = page.getViewport({ scale: 1 });
+            const cssScale = availableWidth / naturalViewport.width;
+            const renderViewport = page.getViewport({ scale: cssScale * pixelRatio });
+
+            const canvas = document.createElement("canvas");
+            canvas.className = "pdf-page-canvas";
+            canvas.width = Math.floor(renderViewport.width);
+            canvas.height = Math.floor(renderViewport.height);
+            canvas.style.width = `${Math.floor(naturalViewport.width * cssScale)}px`;
+            canvas.style.height = `${Math.floor(naturalViewport.height * cssScale)}px`;
+            canvas.setAttribute("role", "img");
+            canvas.setAttribute("aria-label", `PDF page ${pageNumber} of ${pdf.numPages}`);
+
+            const context = canvas.getContext("2d", { alpha: false });
+            await page.render({ canvasContext: context, viewport: renderViewport }).promise;
+            fragment.appendChild(canvas);
+          }
+
+          container.replaceChildren(fragment);
+        } catch (error) {
+          console.error(`Unable to render ${pdfPath}`, error);
+          container.innerHTML = '<div class="pdf-error">PDF preview could not be loaded. Check that the PDF path and filename are correct.</div>';
+        }
+      }
+
+      previewContainers.forEach((container) => renderPdfPreview(container));
+    })();
+  </script>
+
   <script>
     (function () {
       const videos = Array.from(document.querySelectorAll("video"));
@@ -955,6 +1063,7 @@
       });
     })();
   </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"df358ff767b04bcd8e3e7d3b1f6f5c6e","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"df358ff767b04bcd8e3e7d3b1f6f5c6e","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"df358ff767b04bcd8e3e7d3b1f6f5c6e","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"df358ff767b04bcd8e3e7d3b1f6f5c6e","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
